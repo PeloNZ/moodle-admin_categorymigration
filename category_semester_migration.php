@@ -1,6 +1,7 @@
 <?php
 /**
  * This script migrates categories and their child courses to new categories
+ * THIS IS A RUN-ONCE SCRIPT! Back up and test before using.
  *
  * @package    admin
  * @subpackage cli
@@ -12,14 +13,7 @@
 define('CLI_SCRIPT', true);
 
 require(dirname(dirname(dirname(__FILE__))).'/config.php');
-require_once($CFG->libdir.'/adminlib.php');       // various admin-only functions
-require_once($CFG->libdir.'/upgradelib.php');     // general upgrade/install related functions
 require_once($CFG->libdir.'/clilib.php');         // cli only functions
-require_once($CFG->libdir.'/environmentlib.php');
-require_once($CFG->libdir.'/pluginlib.php');
-require_once($CFG->libdir.'/filelib.php');
-require_once($CFG->libdir.'/moodlelib.php');
-require_once($CFG->libdir.'/enrollib.php');
 require_once($CFG->dirroot.'/course/lib.php');
 
 // now get cli options
@@ -51,12 +45,12 @@ if ($options['help']) {
         --newyear            The new year; copies current courses to a sub cat with this title and resets them
         --currentyear        The current year; moves current courses to a sub cat with this title
         --reservelist        The list of courses to except from this migration
-        --reservecat         The list of courses to except from this migration
+        --reservecat         The category to move reserved courses into
 
         -h, --help            Print out this help
 
         Example:
-        \$sudo -u www-data /usr/bin/php admin/cli/category_migration.php
+        \$sudo -u www-data /usr/bin/php admin/cli/category_migration.php --newyear=2013 --currentyear=2012 --reservecat=IB --reservelist=ib_course_list.txt
         ";
 
     echo $help;
@@ -66,11 +60,16 @@ if ($options['help']) {
 // parse the cli parameters and add create relevant variables
 extract($options);
 
-// first we deal with the reserve courses
+if (!(isset($newyear, $currentyear))) {
+    echo $help;
+    die;
+}
+
+// first deal with the reserve courses
 if ($reservelist AND $reservecat) {
     echo "moving reserved courses\n";
     if ($reservelist = file($CFG->dirroot .'/'. $reservelist, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES)) {
-        // clean up the list of course names - TODO filter for xss
+        // clean up the list of course names
         $reservelist = array_map('trim', $reservelist);
         // get the corresponding course ids from the list
         $reservecourses = $DB->get_records_list('course', 'fullname', $reservelist, 'sortorder DESC', 'id');
@@ -83,16 +82,16 @@ if ($reservelist AND $reservecat) {
     }
     echo "reserved courses moved ok\n";
 }
+
 // get a list of all top level categories, excluding the reservecat
 $parentcats = get_child_categories(0);
-
-// add a current year category to each top level category
 $newcategory = new stdClass();
 
+// begin the migration
 foreach ($parentcats as $parent) {
     // get the child categories of each parent
     $subcats = get_child_categories($parent->id);
-    // create the current year category
+    // add a current year category to each top level category
     $newcategory->parent = $parent->id;
     $newcategory->name = $currentyear;
     echo "creating category {$newcategory->name} in {$parent->name}\n";
@@ -108,7 +107,7 @@ foreach ($parentcats as $parent) {
     // move the children and their contents into the current year category
     foreach ($subcats as $child) {
         echo "moving category {$child->name} to {$parent->name} - {$currentyearcat->name}\n";
-        if ($child->id != $reservecat->id) {
+        if ($child->id != $reservecat->id) { // the reserved category must be ignored
             move_category($child, $currentyearcat);
 
             // copy subcats categories to new year parents
@@ -121,41 +120,41 @@ foreach ($parentcats as $parent) {
 
             // get courses in this category
             $courses = $DB->get_records('course', array('category'=>$child->id), 'sortorder DESC');
-            // build a new copy of each course
             foreach ($courses as $course) {
+                // build a new copy of each course
                 $newcourse = clone $course;
                 $newcourse->id = null;
                 $newcourse->category = $newchild->id;
 
                 update_course_info($newcourse, $currentyearcat->name, $newyearcat->name);
                 echo "creating course {$newcourse->shortname} in {$parent->name} - {$newyearcat->name}\n";
-                create_course($newcourse);
-                /*
-                // restore course data and enrolments
-                echo "importing course data from {$course->shortname} in to {$newcourse->shortname}\n";
-                import_course($newcourse, $course);
-                // now enrol the teachers into the new courses
-                $oldcontext = context_course::instance($course->id);
-                // get enroled users, excluding students, in old course
-                $users = get_enrolled_users($oldcontext);
+                $newcourse = create_course($newcourse);
+
+                // rapidly get course context
                 $sql = "
-                SELECT ra.userid, ra.roleid
-                FROM mdl_role r JOIN mdl_role_assignments ra
-                ON r.id = ra.roleid
-                WHERE r.shortname NOT IN ('student','parent','guest') AND ra.contextid = ?
-                ";
-                $params = array($oldcontext->id);
-                $users = $DB->execute($sql, $params);
+                    SELECT *
+                    FROM mdl_context
+                    WHERE instanceid = ? AND contextlevel = ?
+                    ";
+                $oldcontext = $DB->get_record_sql($sql, array($course->id, '50'));
+
+                // get all trainer type users in the old course
+                $sql = "
+                    SELECT ra.userid, ra.roleid
+                    FROM mdl_role r JOIN mdl_role_assignments ra
+                    ON r.id = ra.roleid
+                    WHERE r.shortname NOT IN ('student','parent','guest') AND ra.contextid = ?
+                    ";
+                $users = $DB->get_records_sql($sql, array($oldcontext->id));
 
                 // get the enrol instance for new course
                 $instance = $DB->get_record('enrol', array('courseid'=>$newcourse->id, 'enrol'=>'manual'));
 
                 // enrol each user in the new course
                 foreach ($users as $user) {
-                echo "enroling user {$user->id} in {$newcourse->shortname}\n";
-                enrol_user($instance, $user->userid, $user->roleid, time());
+                    echo "enroling user {$user->userid} in {$newcourse->shortname}\n";
+                    enrol_user($instance, $user->userid, $user->roleid, time());
                 }
-                 */
             }
         }
     }
@@ -164,17 +163,27 @@ foreach ($parentcats as $parent) {
 echo "Course migration complete\n";
 exit(0);
 
-// can't have duplicate shortnames or idnumbers. some also have the year already in there
+/**
+ * filter course properties
+ *
+ * @param object &$courseobj the course being filtered, by reference
+ * @param str    $search     look for this string
+ * @param str    $replace    replace with this string
+ * @return void
+ */
 function update_course_info(&$courseobj, $search, $replace) {
     // only some of the properties matter
+    // can't have duplicate shortnames or idnumbers. some also have the year already in there
     $properties = array(
             'fullname',
             'shortname',
             'idnumber',
             );
+
     foreach ($properties as $property) {
         $from = $courseobj->$property;
         $name = $courseobj->fullname;
+
         if (empty($courseobj->$property)) { // site id numbers may be empty
             continue;
         } else if (strpos($courseobj->$property, $replace)) { // some next year courses may exist already
@@ -190,99 +199,45 @@ function update_course_info(&$courseobj, $search, $replace) {
     $courseobj->startdate = make_timestamp($replace);
 }
 
-function import_course($course, $importcourse) {
-    global $CFG, $DB;
+/**
+ * Enrol user into course
+ * Stripped function from lib/enrollib.php
+ *
+ * @param stdClass $instance
+ * @param int $userid
+ * @param int $roleid optional role id
+ * @param int $timestart 0 means unknown
+ * @param int $timeend 0 means forever
+ * @param int $status default to ENROL_USER_ACTIVE for new enrolments, no change by default in updates
+ * @return void
+ */
+function enrol_user(stdClass $instance, $userid, $roleid = NULL, $timestart = 0, $timeend = 0, $status = NULL) {
+    global $DB, $USER, $CFG; // CFG necessary!!!
 
-    // Require both the backup and restore libs
-    require_once($CFG->dirroot . '/backup/util/includes/backup_includes.php');
-    require_once($CFG->dirroot . '/backup/moodle2/backup_plan_builder.class.php');
-    require_once($CFG->dirroot . '/backup/util/includes/restore_includes.php');
-    require_once($CFG->dirroot . '/backup/util/ui/import_extensions.php');
+    $name = 'manual';
+    $courseid = $instance->courseid;
 
-    // The courseid we are importing to
-    $courseid = $course->id;
-    // The id of the course we are importing FROM (will only be set if past first stage
-    $importcourseid = $importcourse->id;
-    // The target method for the restore (adding or deleting)
-    $restoretarget = backup::TARGET_CURRENT_ADDING;
+    $context = get_context_instance(CONTEXT_COURSE, $instance->courseid, MUST_EXIST);
 
-    // Load the course and context
-    $context = get_context_instance(CONTEXT_COURSE, $courseid);
+    // enrol
+    $ue = new stdClass();
+    $ue->enrolid      = $instance->id;
+    $ue->status       = is_null($status) ? ENROL_USER_ACTIVE : $status;
+    $ue->userid       = $userid;
+    $ue->timestart    = $timestart;
+    $ue->timeend      = $timeend;
+    $ue->modifierid   = $USER->id;
+    $ue->timecreated  = time();
+    $ue->timemodified = $ue->timecreated;
+    $ue->id = $DB->insert_record('user_enrolments', $ue);
 
-    // Load the course +context to import from
-    $importcontext = get_context_instance(CONTEXT_COURSE, $importcourseid);
+    // add extra info and trigger event
+    $ue->courseid  = $courseid;
+    $ue->enrol     = $name;
+    events_trigger('user_enrolled', $ue);
 
-    // Attempt to load the existing backup controller (backupid will be false if there isn't one)
-    $backupid = false; //optional_param('backup', false, PARAM_ALPHANUM);
-    if (!($bc = backup_ui::load_controller($backupid))) {
-        $bc = new backup_controller(backup::TYPE_1COURSE, $importcourse->id, backup::FORMAT_MOODLE,
-                backup::INTERACTIVE_YES, backup::MODE_IMPORT, $USER->id);
-        $bc->get_plan()->get_setting('users')->set_status(backup_setting::LOCKED_BY_CONFIG);
-        $settings = $bc->get_plan()->get_settings();
-
-        // For the initial stage we want to hide all locked settings and if there are
-        // no visible settings move to the next stage
-        $visiblesettings = true;
-        import_ui::skip_current_stage(!$visiblesettings);
-    }
-
-    // Process the current stage
-    $backup->process();
-
-    // If it's the final stage process the import
-    if ($backup->get_stage() == backup_ui::STAGE_FINAL) {
-        // First execute the backup
-        $backup->execute();
-        $backup->destroy();
-        unset($backup);
-
-        // Check whether the backup directory still exists. If missing, something
-        // went really wrong in backup, throw error. Note that backup::MODE_IMPORT
-        // backups don't store resulting files ever
-        $tempdestination = $CFG->tempdir . '/backup/' . $backupid;
-        if (!file_exists($tempdestination) || !is_dir($tempdestination)) {
-            cli_error('unknownbackupexporterror'); // shouldn't happen ever
-        }
-
-        // Prepare the restore controller. We don't need a UI here as we will just use what
-        // ever the restore has (the user has just chosen).
-        $rc = new restore_controller($backupid, $course->id, backup::INTERACTIVE_YES, backup::MODE_IMPORT, $USER->id, $restoretarget);
-        // Convert the backup if required.... it should NEVER happed
-        if ($rc->get_status() == backup::STATUS_REQUIRE_CONV) {
-            $rc->convert();
-        }
-        // Mark the UI finished.
-        $rc->finish_ui();
-        // Execute prechecks
-        if (!$rc->execute_precheck()) {
-            $precheckresults = $rc->get_precheck_results();
-            if (is_array($precheckresults) && !empty($precheckresults['errors'])) {
-                fulldelete($tempdestination);
-
-                die();
-            }
-        } else {
-            if ($restoretarget == backup::TARGET_CURRENT_DELETING || $restoretarget == backup::TARGET_EXISTING_DELETING) {
-                restore_dbops::delete_course_content($course->id);
-            }
-            // Execute the restore
-            $rc->execute_plan();
-        }
-
-        // Delete the temp directory now
-        fulldelete($tempdestination);
-
-        // Display a notification and a continue button
-        echo "success";
-
-        die();
-
-    } else {
-        // Otherwise save the controller and progress
-        $backup->save_controller();
-    }
-
-    $backup->destroy();
-    unset($backup);
+    // this must be done after the enrolment event so that the role_assigned event is triggered afterwards
+    role_assign($roleid, $userid, $context->id, 'enrol_'.$name, $instance->id);
 }
+
 ?>
