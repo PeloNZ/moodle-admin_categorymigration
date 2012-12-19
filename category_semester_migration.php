@@ -15,6 +15,11 @@ define('CLI_SCRIPT', true);
 require(dirname(dirname(dirname(__FILE__))).'/config.php');
 require_once($CFG->libdir.'/clilib.php');         // cli only functions
 require_once($CFG->dirroot.'/course/lib.php');
+require_once($CFG->dirroot.'/course/externallib.php');
+require_once($CFG->dirroot.'/backup/util/includes/backup_includes.php');
+require_once($CFG->dirroot.'/backup/util/dbops/restore_dbops.class.php');
+
+$USER = $DB->get_record('user', array('id'=>2));
 
 // now get cli options
 list($options, $unrecognized) = cli_get_params(
@@ -125,10 +130,25 @@ foreach ($parentcats as $parent) {
                 $newcourse = clone $course;
                 $newcourse->id = null;
                 $newcourse->category = $newchild->id;
+                list($ignoreme, $newcourse->shortname) = restore_dbops::calculate_course_names(0, 'n/a', $course->shortname);
 
                 update_course_info($newcourse, $currentyearcat->name, $newyearcat->name);
                 echo "creating course {$newcourse->shortname} in {$parent->name} - {$newyearcat->name}\n";
-                $newcourse = create_course($newcourse);
+//                $newcourse = create_course($newcourse);
+                try {
+                    $newcourse = core_course_external::duplicate_course(
+                            $course->id,
+                            $newcourse->fullname,
+                            $newcourse->shortname,
+                            $newcourse->category,
+                            0,
+                            array(array('name' => 'users', 'value' => false))
+                    );
+                } catch (Exception $e) {
+                    echo "ERROR: Failed duplicating course {$course->id}\n";
+                    var_dump($e);
+                    return false;
+                }
 
                 // rapidly get course context
                 $sql = "
@@ -148,11 +168,11 @@ foreach ($parentcats as $parent) {
                 $users = $DB->get_records_sql($sql, array($oldcontext->id));
 
                 // get the enrol instance for new course
-                $instance = $DB->get_record('enrol', array('courseid'=>$newcourse->id, 'enrol'=>'manual'));
+                $instance = $DB->get_record('enrol', array('courseid'=>$newcourse['id'], 'enrol'=>'manual'));
 
                 // enrol each user in the new course
                 foreach ($users as $user) {
-                    echo "enroling user {$user->userid} in {$newcourse->shortname}\n";
+                    echo "enroling user {$user->userid} in {$newcourse['shortname']}\n";
                     enrol_user($instance, $user->userid, $user->roleid, time());
                 }
             }
