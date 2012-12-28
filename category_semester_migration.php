@@ -130,9 +130,9 @@ foreach ($parentcats as $parent) {
                 $newcourse = clone $course;
                 $newcourse->id = null;
                 $newcourse->category = $newchild->id;
-                list($ignoreme, $newcourse->shortname) = restore_dbops::calculate_course_names(0, 'n/a', $course->shortname);
-
                 update_course_info($newcourse, $currentyearcat->name, $newyearcat->name);
+                list($ignoreme, $newcourse->shortname) = restore_dbops::calculate_course_names(0, 'n/a', $newcourse->shortname);
+
                 echo "creating course {$newcourse->shortname} in {$parent->name} - {$newyearcat->name}\n";
 //                $newcourse = create_course($newcourse);
                 try {
