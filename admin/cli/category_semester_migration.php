@@ -70,6 +70,8 @@ if (!(isset($newyear, $currentyear))) {
     die;
 }
 
+echo strftime('%c') . " : Begin\n";
+
 // first deal with the reserve courses
 if ($reservelist AND $reservecat) {
     echo "moving reserved courses\n";
@@ -110,8 +112,9 @@ foreach ($parentcats as $parent) {
     fix_course_sortorder();
 
     // move the children and their contents into the current year category
+    $failedcourses = array();
     foreach ($subcats as $child) {
-        echo "moving category {$child->name} to {$parent->name} - {$currentyearcat->name}\n";
+        echo strftime('%c') . " : moving category {$child->name} to {$parent->name} - {$currentyearcat->name}\n";
         if ($child->id != $reservecat->id) { // the reserved category must be ignored
             move_category($child, $currentyearcat);
 
@@ -133,7 +136,7 @@ foreach ($parentcats as $parent) {
                 update_course_info($newcourse, $currentyearcat->name, $newyearcat->name);
                 list($ignoreme, $newcourse->shortname) = restore_dbops::calculate_course_names(0, 'n/a', $newcourse->shortname);
 
-                echo "creating course {$newcourse->shortname} in {$parent->name} - {$newyearcat->name}\n";
+                echo strftime('%c') . " : creating course {$newcourse->shortname} in {$parent->name} - {$newyearcat->name}\n";
 //                $newcourse = create_course($newcourse);
                 try {
                     $newcourse = core_course_external::duplicate_course(
@@ -147,7 +150,9 @@ foreach ($parentcats as $parent) {
                 } catch (Exception $e) {
                     echo "ERROR: Failed duplicating course {$course->id}\n";
                     var_dump($e);
-                    return false;
+                    $failedcourses[] = $course->id;
+//                    return false;
+                    continue;
                 }
 
                 // rapidly get course context
@@ -178,9 +183,15 @@ foreach ($parentcats as $parent) {
             }
         }
     }
+    if (count($failedcourses)) {
+        echo "ERROR: Failed copying the following courses:\n";
+        var_dump($failedcourses);
+    } else {
+        echo "No failed courses.";
+    }
 }
 
-echo "Course migration complete\n";
+echo strftime('%c') . " : Course migration complete\n";
 exit(0);
 
 /**
