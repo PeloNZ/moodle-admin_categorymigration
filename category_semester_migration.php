@@ -14,6 +14,7 @@ define('CLI_SCRIPT', true);
 
 require(dirname(dirname(dirname(__FILE__))).'/config.php');
 require_once($CFG->libdir.'/clilib.php');         // cli only functions
+require_once($CFG->libdir.'/coursecatlib.php');
 require_once($CFG->dirroot.'/course/lib.php');
 require_once($CFG->dirroot.'/course/externallib.php');
 require_once($CFG->dirroot.'/backup/util/includes/backup_includes.php');
@@ -92,24 +93,28 @@ if ($reservelist AND $reservecat) {
 }
 
 // get a list of all top level categories, excluding the reservecat
-$parentcats = get_child_categories(0);
-$newcategory = new stdClass();
+$rootcat = coursecat::get(0);
+$parentcats = $rootcat->get_children();
 
 // begin the migration
 foreach ($parentcats as $parent) {
     // get the child categories of each parent
-    $yearcats = get_child_categories($parent->id);
-    $newcategory->parent = $parent->id;
+    $yearcats = $parent->get_children();
+
+    // build the data for the new category
+    $newcategory = new stdClass();
+    $newcategory->parent = $parent->__get('id');
+    /*
+    // add a current year category to each top level category
     $newcategory->name = $currentyear;
     echo "creating category {$newcategory->name} in {$parent->name}\n";
     $currentyearcat = create_course_category($newcategory);
     fix_course_sortorder();
-
+    */
     // create the new year category
     $newcategory->name = $newyear;
     echo "creating category {$newcategory->name} in {$parent->name}\n";
-    $newyearcat = create_course_category($newcategory);
-    fix_course_sortorder();
+    $newyearcat = coursecat::create($newcategory);
 
     foreach ($yearcats as $child) { // this is the year category
         // only copy yearcats from the currentyear parent
@@ -126,15 +131,16 @@ foreach ($parentcats as $parent) {
         copy_courses($child, $newyearcat, $parent, $currentyear, $newyear);
 
         // then go deeper and get the subcats of that year
-        $subjectcats = get_child_categories($child->id);
+        $subjectcats = $child->get_children();
         foreach ($subjectcats as $subject) {
             // copy yearcats categories to new year parents
-            $newchild = clone $subject;
+            $newchild = new stdClass();
             $newchild->id = null;
             $newchild->parent = $newyearcat->id;
-            echo "creating category {$newchild->name} in {$parent->name} - {$newyearcat->name}\n";
-            $newchild = create_course_category($newchild);
-            fix_course_sortorder();
+            $newchild->name = $subject->__get('name');
+
+            echo "creating category {$newchild->name} in {$parent->name} / {$newyearcat->name}\n";
+            $newchild = coursecat::create($newchild);
 
             // get courses in this category
             copy_courses($subject, $newchild, $subject, $currentyear, $newyear);
