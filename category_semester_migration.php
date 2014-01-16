@@ -111,8 +111,6 @@ foreach ($parentcats as $parent) {
     $newyearcat = create_course_category($newcategory);
     fix_course_sortorder();
 
-    // move the children and their contents into the current year category
-    $failedcourses = array();
     foreach ($yearcats as $child) { // this is the year category
         // only copy yearcats from the currentyear parent
         if ($child->name != $currentyear) {
@@ -141,12 +139,6 @@ foreach ($parentcats as $parent) {
             // get courses in this category
             copy_courses($subject, $newchild, $subject, $currentyear, $newyear);
         }
-    }
-    if (count($failedcourses)) {
-        echo "ERROR: Failed copying the following courses:\n";
-        var_dump($failedcourses);
-    } else {
-        echo "No failed courses.";
     }
 }
 
@@ -236,6 +228,7 @@ function enrol_user(stdClass $instance, $userid, $roleid = NULL, $timestart = 0,
 function copy_courses($currentcategory, $subcategory, $parentcategory, $currentyear, $newyear) {
     global $DB;
 
+    $failedcourses = array();
     $courses = $DB->get_recordset('course', array('category'=>$currentcategory->id), 'sortorder DESC');
 
     foreach ($courses as $course) {
@@ -293,6 +286,14 @@ function copy_courses($currentcategory, $subcategory, $parentcategory, $currenty
             enrol_user($instance, $user->userid, $user->roleid, time());
         }
         $users->close(); // close the recordset
+
+        // report errors
+        if (count($failedcourses)) {
+            echo "ERROR: Failed copying the following courses:\n";
+            var_dump($failedcourses);
+        } else {
+            echo "No failed courses.";
+        }
     }
     $courses->close(); // close the recordset
 }
