@@ -128,60 +128,11 @@ foreach ($parentcats as $parent) {
             fix_course_sortorder();
 
             // get courses in this category
-            $courses = $DB->get_records('course', array('category'=>$child->id), 'sortorder DESC');
+            $courses = $DB->get_records('course', array('category'=>$subject->id), 'sortorder DESC');
             foreach ($courses as $course) {
-                // build a new copy of each course
-                $newcourse = clone $course;
-                $newcourse->id = null;
-                $newcourse->category = $newchild->id;
-                update_course_info($newcourse, $currentyearcat->name, $newyearcat->name);
-                list($ignoreme, $newcourse->shortname) = restore_dbops::calculate_course_names(0, 'n/a', $newcourse->shortname);
-
-                echo strftime('%c') . " : creating course {$newcourse->shortname} in {$parent->name} - {$newyearcat->name}\n";
-//                $newcourse = create_course($newcourse);
-                try {
-                    $newcourse = core_course_external::duplicate_course(
-                            $course->id,
-                            $newcourse->fullname,
-                            $newcourse->shortname,
-                            $newcourse->category,
-                            0,
-                            array(array('name' => 'users', 'value' => false))
-                    );
-                } catch (Exception $e) {
-                    echo "ERROR: Failed duplicating course {$course->id}\n";
-                    var_dump($e);
-                    $failedcourses[] = $course->id;
-//                    return false;
-                    continue;
-                }
-
-                // rapidly get course context
-                $sql = "
-                    SELECT *
-                    FROM mdl_context
-                    WHERE instanceid = ? AND contextlevel = ?
-                    ";
-                $oldcontext = $DB->get_record_sql($sql, array($course->id, '50'));
-
-                // get all trainer type users in the old course
-                $sql = "
-                    SELECT ra.userid, ra.roleid
-                    FROM mdl_role r JOIN mdl_role_assignments ra
-                    ON r.id = ra.roleid
-                    WHERE r.shortname NOT IN ('student','parent','guest') AND ra.contextid = ?
-                    ";
-                $users = $DB->get_records_sql($sql, array($oldcontext->id));
-
-                // get the enrol instance for new course
-                $instance = $DB->get_record('enrol', array('courseid'=>$newcourse['id'], 'enrol'=>'manual'));
-
-                // enrol each user in the new course
-                foreach ($users as $user) {
-                    echo "enroling user {$user->userid} in {$newcourse['shortname']}\n";
-                    enrol_user($instance, $user->userid, $user->roleid, time());
-                }
+                copy_course($course, $newchild, $subject, $currentyear, $newyear);
             }
+            unset($courses);
         }
     }
     if (count($failedcourses)) {
@@ -270,6 +221,63 @@ function enrol_user(stdClass $instance, $userid, $roleid = NULL, $timestart = 0,
 
     // this must be done after the enrolment event so that the role_assigned event is triggered afterwards
     role_assign($roleid, $userid, $context->id, 'enrol_'.$name, $instance->id);
+}
+
+/**
+ * Copy a course, its content, and enrolments into a new category
+ */
+function copy_course($course, $subcategory, $parentcategory, $currentyear, $newyear) {
+    global $DB;
+    // build a new copy of each course
+    $newcourse = clone $course;
+    $newcourse->id = null;
+    $newcourse->category = $subcategory->id;
+    update_course_info($newcourse, $currentyear, $newyear);
+    list($ignoreme, $newcourse->shortname) = restore_dbops::calculate_course_names(0, 'n/a', $newcourse->shortname);
+
+    echo "creating course {$newcourse->shortname} in {$parentcategory->name} - {$newyear}\n";
+    //    $newcourse = create_course($newcourse);
+
+    try {
+        $newcourse = core_course_external::duplicate_course( // this transforms $newcourse into an array
+                $course->id,
+                $newcourse->fullname,
+                $newcourse->shortname,
+                $newcourse->category,
+                0,
+                array(array('name' => 'users', 'value' => false))
+                );
+    } catch (Exception $e) {
+        echo "ERROR: Failed duplicating course {$course->id}\n";
+        var_dump($e);
+        $failedcourses[] = $course->id;
+        return false;
+    }
+    // rapidly get course context
+    $sql = "
+        SELECT *
+        FROM mdl_context
+        WHERE instanceid = ? AND contextlevel = ?
+        ";
+    $oldcontext = $DB->get_record_sql($sql, array($course->id, '50'));
+
+    // get all trainer type users in the old course
+    $sql = "
+        SELECT ra.userid, ra.roleid
+        FROM mdl_role r JOIN mdl_role_assignments ra
+        ON r.id = ra.roleid
+        WHERE r.shortname NOT IN ('student','parent','guest') AND ra.contextid = ?
+        ";
+    $users = $DB->get_records_sql($sql, array($oldcontext->id));
+
+    // get the enrol instance for new course
+    $instance = $DB->get_record('enrol', array('courseid'=>$newcourse['id'], 'enrol'=>'manual'));
+
+    // enrol each user in the new course
+    foreach ($users as $user) {
+        echo "enroling user {$user->userid} in {$newcourse['shortname']}\n";
+        enrol_user($instance, $user->userid, $user->roleid, time());
+    }
 }
 
 ?>
