@@ -63,13 +63,13 @@ if ($options['help']) {
     die;
 }
 
-// parse the cli parameters and add create relevant variables
-extract($options);
-
-if (!(isset($newyear, $currentyear))) {
+if (empty($options['newyear']) OR empty($options['currentyear'])) {
     echo $help;
     die;
 }
+
+// parse the cli parameters and add create relevant variables
+extract($options);
 
 echo strftime('%c') . " : Begin\n";
 
