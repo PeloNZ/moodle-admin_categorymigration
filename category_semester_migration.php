@@ -98,8 +98,7 @@ $newcategory = new stdClass();
 // begin the migration
 foreach ($parentcats as $parent) {
     // get the child categories of each parent
-    $subcats = get_child_categories($parent->id);
-    // add a current year category to each top level category
+    $yearcats = get_child_categories($parent->id);
     $newcategory->parent = $parent->id;
     $newcategory->name = $currentyear;
     echo "creating category {$newcategory->name} in {$parent->name}\n";
@@ -114,13 +113,29 @@ foreach ($parentcats as $parent) {
 
     // move the children and their contents into the current year category
     $failedcourses = array();
-    foreach ($subcats as $child) {
-        echo strftime('%c') . " : moving category {$child->name} to {$parent->name} - {$currentyearcat->name}\n";
-        if ($child->id != $reservecat->id) { // the reserved category must be ignored
-            move_category($child, $currentyearcat);
+    foreach ($yearcats as $child) { // this is the year category
+        // only copy yearcats from the currentyear parent
+        if ($child->name != $currentyear) {
+            continue;
+        }
 
-            // copy subcats categories to new year parents
-            $newchild = clone $child;
+        // the reserved category must be ignored
+        if ($child->id == $reservecat->id) {
+            continue;
+        }
+
+        // check if there are any courses at this level, ie not in a deeper category
+        $courses = $DB->get_records('course', array('category'=>$child->id), 'sortorder DESC');
+        foreach ($courses as $course) {
+            copy_course($course, $newyearcat, $parent, $currentyear, $newyear);
+        }
+        unset($courses);
+
+        // then go deeper and get the subcats of that year
+        $subjectcats = get_child_categories($child->id);
+        foreach ($subjectcats as $subject) {
+            // copy yearcats categories to new year parents
+            $newchild = clone $subject;
             $newchild->id = null;
             $newchild->parent = $newyearcat->id;
             echo "creating category {$newchild->name} in {$parent->name} - {$newyearcat->name}\n";
