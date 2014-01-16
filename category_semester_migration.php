@@ -21,6 +21,24 @@ require_once($CFG->dirroot.'/backup/util/dbops/restore_dbops.class.php');
 
 $USER = $DB->get_record('user', array('id'=>2));
 
+$help =
+"Move course categories and their child categories and courses to a new
+category tree.
+Please note you must execute this script with the same uid as apache!
+
+Options:
+--newyear            The new year; copies current courses to a sub cat with this title and resets them
+--currentyear        The current year; moves current courses to a sub cat with this title
+--reservelist        The list of courses to except from this migration
+--reservecat         The category to move reserved courses into
+
+-h, --help            Print out this help
+
+Example:
+\$sudo -u www-data /usr/bin/php admin/cli/category_migration.php --newyear=2013 --currentyear=2012 --reservecat=IB --reservelist=ib_course_list.txt
+";
+
+
 // now get cli options
 list($options, $unrecognized) = cli_get_params(
         array(
@@ -41,23 +59,6 @@ if ($unrecognized) {
 }
 
 if ($options['help']) {
-    $help =
-        "Move course categories and their child categories and courses to a new
-        category tree.
-        Please note you must execute this script with the same uid as apache!
-
-        Options:
-        --newyear            The new year; copies current courses to a sub cat with this title and resets them
-        --currentyear        The current year; moves current courses to a sub cat with this title
-        --reservelist        The list of courses to except from this migration
-        --reservecat         The category to move reserved courses into
-
-        -h, --help            Print out this help
-
-        Example:
-        \$sudo -u www-data /usr/bin/php admin/cli/category_migration.php --newyear=2013 --currentyear=2012 --reservecat=IB --reservelist=ib_course_list.txt
-        ";
-
     echo $help;
     die;
 }
