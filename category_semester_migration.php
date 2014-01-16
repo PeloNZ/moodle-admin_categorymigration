@@ -104,15 +104,8 @@ foreach ($parentcats as $parent) {
     // build the data for the new category
     $newcategory = new stdClass();
     $newcategory->parent = $parent->__get('id');
-    /*
-    // add a current year category to each top level category
-    $newcategory->name = $currentyear;
-    echo "creating category {$newcategory->name} in {$parent->name}\n";
-    $currentyearcat = create_course_category($newcategory);
-    fix_course_sortorder();
-    */
-    // create the new year category
     $newcategory->name = $newyear;
+
     echo "creating category {$newcategory->name} in {$parent->name}\n";
     $newyearcat = coursecat::create($newcategory);
 
