@@ -94,12 +94,22 @@ if ($reservelist AND $reservecat) {
 
 // get a list of all top level categories, excluding the reservecat
 $rootcat = coursecat::get(0);
-$parentcats = $rootcat->get_children();
+if ($rootcat->has_children()) {
+    $parentcats = $rootcat->get_children();
+} else {
+    echo "No categories found!\n";
+    die;
+}
 
 // begin the migration
 foreach ($parentcats as $parent) {
     // get the child categories of each parent
-    $yearcats = $parent->get_children();
+    if ($parent->has_children()) {
+        $yearcats = $parent->get_children();
+    } else {
+        echo "No subcategories found in category {$parent->__get('name')}\n";
+        continue;
+    }
 
     // build the data for the new category
     $newcategory = new stdClass();
@@ -121,7 +131,11 @@ foreach ($parentcats as $parent) {
         }
 
         // check if there are any courses at this level, ie not in a deeper category
-        copy_courses($child, $newyearcat, $parent, $currentyear, $newyear);
+        if ($child->has_courses()) {
+            copy_courses($child, $newyearcat, $parent, $currentyear, $newyear);
+        } else {
+            echo "No courses found in category {$child->__get('name')}\n";
+        }
 
         // then go deeper and get the subcats of that year
         $subjectcats = $child->get_children();
@@ -136,7 +150,12 @@ foreach ($parentcats as $parent) {
             $newchild = coursecat::create($newchild);
 
             // get courses in this category
-            copy_courses($subject, $newchild, $subject, $currentyear, $newyear);
+            // check if there are any courses at this level, ie not in a deeper category
+            if ($subject->has_courses()) {
+                copy_courses($subject, $newchild, $subject, $currentyear, $newyear);
+            } else {
+                echo "No courses found in category {$subject->__get('name')}\n";
+            }
         }
     }
 }
