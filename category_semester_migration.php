@@ -14,14 +14,16 @@ define('CLI_SCRIPT', true);
 
 require(dirname(dirname(dirname(__FILE__))).'/config.php');
 require_once($CFG->libdir.'/clilib.php');         // cli only functions
-require_once($CFG->libdir.'/coursecatlib.php');
+require_once($CFG->libdir.'/coursecatlib.php'); // Moodle 2.5 course category class functions
 require_once($CFG->dirroot.'/course/lib.php');
 require_once($CFG->dirroot.'/course/externallib.php');
-require_once($CFG->dirroot.'/backup/util/includes/backup_includes.php');
+require_once($CFG->dirroot.'/backup/util/includes/backup_includes.php');    // used for course duplication
 require_once($CFG->dirroot.'/backup/util/dbops/restore_dbops.class.php');
 
+// required for user enrolments
 $USER = $DB->get_record('user', array('id'=>2));
 
+// cli usage instructions
 $help =
 "Move course categories and their child categories and courses to a new
 category tree.
@@ -39,7 +41,6 @@ Example:
 \$sudo -u www-data /usr/bin/php admin/cli/category_migration.php --newyear=2013 --currentyear=2012 --reservecat=IB --reservelist=ib_course_list.txt
 ";
 
-
 // now get cli options
 list($options, $unrecognized) = cli_get_params(
         array(
@@ -54,16 +55,19 @@ list($options, $unrecognized) = cli_get_params(
             )
         );
 
+// a cli option was not recognised
 if ($unrecognized) {
     $unrecognized = implode("\n  ", $unrecognized);
     cli_error(get_string('cliunknowoption', 'admin', $unrecognized));
 }
 
+// display the help dialog
 if ($options['help']) {
     echo $help;
     die;
 }
 
+// if either of these options are missing, display the help dialog
 if (empty($options['newyear']) OR empty($options['currentyear'])) {
     echo $help;
     die;
@@ -92,7 +96,7 @@ if ($reservelist AND $reservecat) {
     echo "reserved courses moved ok\n";
 }
 
-// get a list of all top level categories, excluding the reservecat
+// get all the top level categories
 $rootcat = coursecat::get(0);
 if ($rootcat->has_children()) {
     $parentcats = $rootcat->get_children();
@@ -120,7 +124,7 @@ foreach ($parentcats as $parent) {
     $newyearcat = coursecat::create($newcategory);
 
     foreach ($yearcats as $child) { // this is the year category
-        // only copy yearcats from the currentyear parent
+        // only copy categories from within the currentyear parent
         if ($child->name != $currentyear) {
             continue;
         }
@@ -150,7 +154,7 @@ foreach ($parentcats as $parent) {
             $newchild = coursecat::create($newchild);
 
             // get courses in this category
-            // check if there are any courses at this level, ie not in a deeper category
+            // check if there are any courses at this level
             if ($subject->has_courses()) {
                 copy_courses($subject, $newchild, $subject, $currentyear, $newyear);
             } else {
@@ -162,6 +166,7 @@ foreach ($parentcats as $parent) {
 
 echo strftime('%c') . " : Course migration complete\n";
 exit(0);
+// end of script
 
 /**
  * filter course properties
@@ -212,7 +217,7 @@ function update_course_info(&$courseobj, $search, $replace) {
  * @return void
  */
 function enrol_user(stdClass $instance, $userid, $roleid = NULL, $timestart = 0, $timeend = 0, $status = NULL) {
-    global $DB, $USER, $CFG; // CFG necessary!!!
+    global $DB, $USER;
 
     $name = 'manual';
     $courseid = $instance->courseid;
@@ -242,6 +247,13 @@ function enrol_user(stdClass $instance, $userid, $roleid = NULL, $timestart = 0,
 
 /**
  * Copy a course, its content, and enrolments into a new category
+ *
+ * @param object $currentcategory The current category level
+ * @param object $subcategory The subcategory where the course will live
+ * @param object $parentcategory The parent category of the subcategory
+ * @param string $currentyear The currentyear option, used for course data filtering
+ * @param string $newyear The newyear option, used for course data filtering
+ * @return void
  */
 function copy_courses($currentcategory, $subcategory, $parentcategory, $currentyear, $newyear) {
     global $DB;
@@ -310,7 +322,7 @@ function copy_courses($currentcategory, $subcategory, $parentcategory, $currenty
             echo "ERROR: Failed copying the following courses:\n";
             var_dump($failedcourses);
         } else {
-            echo "No failed courses.";
+            echo "No failed courses.\n";
         }
     }
     $courses->close(); // close the recordset
