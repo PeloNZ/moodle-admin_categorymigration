@@ -276,7 +276,6 @@ function copy_courses($currentcategory, $subcategory, $parentcategory, $currenty
         $newcourse = clone $course;
         $newcourse->id = null;
         $newcourse->category = $subcategory->id;
-        $newcourse->visible = 1;
 
         // change the course details for the new year
         update_course_info($newcourse, $currentyear, $newyear);
@@ -291,7 +290,7 @@ function copy_courses($currentcategory, $subcategory, $parentcategory, $currenty
                     $newcourse->fullname,
                     $newcourse->shortname,
                     $newcourse->category,
-                    0,
+                    1,
                     array(array('name' => 'users', 'value' => false))
                     );
         } catch (Exception $e) {
